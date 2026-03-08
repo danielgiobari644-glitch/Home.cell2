@@ -1,6 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { initializeFirestore, collection, addDoc, onSnapshot, query, where, getDocs, updateDoc, doc, setDoc, deleteDoc, orderBy, limit, increment, arrayUnion, arrayRemove, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
 
 const firebaseConfig = {
     apiKey: "AIzaSyCL4siNSgWX0gH5QIbl7OtZFDvBiHH9oP0",
@@ -14,11 +15,12 @@ const firebaseConfig = {
 };
 
 const SUPER_ADMIN_EMAIL = "danielgiobari644@gmail.com";
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB limit for photos/videos
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+const storage = getStorage(app);
 
 let currentUser = null;
 let currentProfile = null;
@@ -26,7 +28,10 @@ let isDark = false;
 let isLogin = true;
 let tutorialStep = 0;
 let themePreference = localStorage.getItem('themePreference') || 'auto';
+let customTheme = localStorage.getItem('customTheme') || 'default';
 let geminiApiKey = localStorage.getItem('geminiApiKey') || '';
+let notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+let notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 
 const UserRole = { USER: 'user', ADMIN: 'admin', SUPER_ADMIN: 'super_admin' };
 
@@ -41,6 +46,58 @@ const AdminPermissions = {
     MANAGE_ADMINS: 'manage_admins'
 };
 
+// Custom theme definitions
+const customThemes = {
+    default: {
+        name: 'Purple Dreams',
+        colors: {
+            primary: '#8b5cf6',
+            secondary: '#06b6d4',
+            accent: '#f97316'
+        }
+    },
+    ocean: {
+        name: 'Ocean Blue',
+        colors: {
+            primary: '#0ea5e9',
+            secondary: '#06b6d4',
+            accent: '#14b8a6'
+        }
+    },
+    sunset: {
+        name: 'Sunset Vibes',
+        colors: {
+            primary: '#f97316',
+            secondary: '#ec4899',
+            accent: '#f59e0b'
+        }
+    },
+    forest: {
+        name: 'Forest Green',
+        colors: {
+            primary: '#10b981',
+            secondary: '#84cc16',
+            accent: '#14b8a6'
+        }
+    },
+    royal: {
+        name: 'Royal Purple',
+        colors: {
+            primary: '#a855f7',
+            secondary: '#ec4899',
+            accent: '#8b5cf6'
+        }
+    },
+    crimson: {
+        name: 'Crimson Red',
+        colors: {
+            primary: '#ef4444',
+            secondary: '#f97316',
+            accent: '#ec4899'
+        }
+    }
+};
+
 const tutorialSteps = [
     { title: "Welcome to Home.cell!", description: "Your community social network. Share, connect, and grow together.", icon: "fa-users", color: "from-blue-600 to-blue-500" },
     { title: "Share Your Story", description: "Post photos, videos, or thoughts with beautiful backgrounds.", icon: "fa-images", color: "from-rose-600 to-rose-500" },
@@ -50,7 +107,8 @@ const tutorialSteps = [
 
 window.firebase = { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs, setDoc, orderBy, limit, increment, arrayUnion, arrayRemove, getDoc };
 window.firebaseAuth = { signOut };
-window.app = { db, auth, currentUser, currentProfile, UserRole, AdminPermissions, MAX_FILE_SIZE, geminiApiKey };
+window.firebaseStorage = { storage, ref, uploadBytesResumable, getDownloadURL, deleteObject };
+window.app = { db, auth, storage, currentUser, currentProfile, UserRole, AdminPermissions, MAX_FILE_SIZE, geminiApiKey };
 
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -96,7 +154,50 @@ function checkTimeBasedTheme() {
 
 function applyTheme() {
     document.documentElement.classList.toggle('dark', isDark);
+    
+    // Apply custom theme colors
+    const theme = customThemes[customTheme] || customThemes.default;
+    const root = document.documentElement.style;
+    
+    // Set primary colors
+    root.setProperty('--color-primary', theme.colors.primary);
+    root.setProperty('--color-secondary', theme.colors.secondary);
+    root.setProperty('--color-accent', theme.colors.accent);
+    
+    // Calculate darker shade for gradients
+    const primaryDark = adjustColor(theme.colors.primary, -20);
+    const primaryLight = adjustColor(theme.colors.primary, 20);
+    root.setProperty('--color-primary-dark', primaryDark);
+    root.setProperty('--color-primary-light', primaryLight);
+    
+    // Set dynamic glow (based on primary color)
+    const primaryRgb = hexToRgb(theme.colors.primary);
+    root.setProperty('--glow-purple', `0 0 32px rgba(${primaryRgb.r}, ${primaryRgb.g}, ${primaryRgb.b}, 0.5)`);
+    
     updateThemeIcon();
+}
+
+// Helper function to convert hex to RGB
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 139, g: 92, b: 246 };
+}
+
+// Helper function to adjust color brightness
+function adjustColor(hex, percent) {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+        (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+        (B < 255 ? B < 1 ? 0 : B : 255))
+        .toString(16).slice(1);
 }
 
 function updateThemeIcon() {
@@ -132,6 +233,211 @@ function toggleTheme() {
     applyTheme();
 }
 
+// Notification System
+function addNotification(title, message, type = 'info', link = null) {
+    if (!notificationsEnabled) return;
+    
+    const notification = {
+        id: Date.now(),
+        title,
+        message,
+        type, // info, success, warning, error
+        link,
+        timestamp: Date.now(),
+        read: false
+    };
+    
+    notifications.unshift(notification);
+    
+    // Keep only last 50 notifications
+    if (notifications.length > 50) {
+        notifications = notifications.slice(0, 50);
+    }
+    
+    localStorage.setItem('notifications', JSON.stringify(notifications));
+    
+    // Show toast for new notification
+    showToast(title, type);
+    
+    // Update notification badge
+    updateNotificationBadge();
+}
+
+function markNotificationAsRead(notificationId) {
+    const notification = notifications.find(n => n.id === notificationId);
+    if (notification) {
+        notification.read = true;
+        localStorage.setItem('notifications', JSON.stringify(notifications));
+        updateNotificationBadge();
+    }
+}
+
+window.markAllNotificationsAsRead = function() {
+    notifications.forEach(n => n.read = true);
+    localStorage.setItem('notifications', JSON.stringify(notifications));
+    updateNotificationBadge();
+    renderNotificationsList();
+    showSuccess('All marked as read');
+};
+
+function getUnreadCount() {
+    return notifications.filter(n => !n.read).length;
+}
+
+window.clearAllNotifications = function() {
+    if (!confirm('Clear all notifications?')) return;
+    notifications = [];
+    localStorage.setItem('notifications', JSON.stringify(notifications));
+    updateNotificationBadge();
+    renderNotificationsList();
+    showSuccess('All notifications cleared');
+};
+
+function updateNotificationBadge() {
+    const badge = document.getElementById('notification-badge');
+    const badgeNav = document.getElementById('notification-badge-nav');
+    const count = getUnreadCount();
+    
+    [badge, badgeNav].forEach(el => {
+        if (el) {
+            if (count > 0) {
+                el.textContent = count > 99 ? '99+' : count;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+    });
+    
+    const countText = document.getElementById('notification-count-text');
+    if (countText) {
+        countText.textContent = `${notifications.length} notification${notifications.length !== 1 ? 's' : ''}`;
+    }
+}
+
+window.toggleNotificationCenter = function() {
+    const panel = document.getElementById('notification-center');
+    if (!panel) return;
+    
+    if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        panel.classList.add('animate-scale-in');
+        renderNotificationsList();
+        
+        setTimeout(() => {
+            document.addEventListener('click', closeNotificationOnClickOutside);
+        }, 100);
+    } else {
+        panel.classList.add('hidden');
+        document.removeEventListener('click', closeNotificationOnClickOutside);
+    }
+};
+
+function closeNotificationOnClickOutside(e) {
+    const panel = document.getElementById('notification-center');
+    const trigger = e.target.closest('button[onclick*="toggleNotificationCenter"]');
+    
+    if (!panel.classList.contains('hidden')) {
+        if (!panel.contains(e.target) && !trigger) {
+            panel.classList.add('hidden');
+            document.removeEventListener('click', closeNotificationOnClickOutside);
+        }
+    }
+}
+
+function renderNotificationsList() {
+    const list = document.getElementById('notifications-list');
+    if (!list) return;
+    
+    if (notifications.length === 0) {
+        list.innerHTML = `
+            <div class="text-center py-12 text-slate-400">
+                <i class="fa-solid fa-bell-slash text-4xl mb-3"></i>
+                <p class="font-semibold">No notifications yet</p>
+                <p class="text-sm mt-2">You'll see updates here</p>
+            </div>
+        `;
+        return;
+    }
+    
+    list.innerHTML = notifications.map(notif => {
+        const typeIcons = {
+            info: 'fa-circle-info text-blue-500',
+            success: 'fa-circle-check text-green-500',
+            warning: 'fa-triangle-exclamation text-amber-500',
+            error: 'fa-circle-xmark text-red-500'
+        };
+        
+        const icon = typeIcons[notif.type] || typeIcons.info;
+        const timeAgo = getTimeAgo(notif.timestamp);
+        
+        return `
+            <div onclick="window.handleNotificationClick(${notif.id})" 
+                class="p-4 rounded-xl ${notif.read ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800'} hover:scale-[1.02] transition-all cursor-pointer">
+                <div class="flex gap-3">
+                    <div class="flex-shrink-0 mt-1">
+                        <i class="fa-solid ${icon} text-lg"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <h4 class="font-bold text-sm dark:text-white ${!notif.read ? 'text-blue-900' : ''}">${notif.title}</h4>
+                            ${!notif.read ? '<div class="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1"></div>' : ''}
+                        </div>
+                        <p class="text-sm text-slate-600 dark:text-slate-400 mb-2">${notif.message}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-500">${timeAgo}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    updateNotificationBadge();
+}
+
+window.handleNotificationClick = function(notificationId) {
+    const notification = notifications.find(n => n.id === notificationId);
+    if (!notification) return;
+    
+    markNotificationAsRead(notificationId);
+    renderNotificationsList();
+    
+    if (notification.link) {
+        window.location.hash = notification.link;
+        window.toggleNotificationCenter();
+    }
+};
+
+function getTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return new Date(timestamp).toLocaleDateString();
+}
+
+// Custom Theme Functions
+window.setCustomTheme = function(themeName) {
+    if (customThemes[themeName]) {
+        customTheme = themeName;
+        localStorage.setItem('customTheme', themeName);
+        applyTheme();
+        showSuccess(`✨ Theme changed to ${customThemes[themeName].name}`);
+        
+        // Re-render settings page if we're on it
+        if (window.app.currentPage === 'settings') {
+            window.renderSettings();
+        }
+    }
+};
+
+window.toggleNotifications = function(enabled) {
+    notificationsEnabled = enabled;
+    localStorage.setItem('notificationsEnabled', enabled);
+    showSuccess(enabled ? '🔔 Notifications enabled' : '🔕 Notifications disabled');
+};
+
 function navigateTo(path) { window.location.hash = path; }
 
 function handleRoute() {
@@ -159,12 +465,16 @@ function handleRoute() {
         if (renderFn) renderFn();
     }
     updateNavigation();
+    
+    // Show/hide APK download button based on page
+    updateApkDownloadButton(targetPage);
 }
 
 function updateNavigation() {
     const hash = window.location.hash.slice(1) || '/';
     const links = document.querySelectorAll('[data-route]');
     links.forEach(link => {
+        link.classList.remove('bg-blue-100', 'dark:bg-blue-900/30', 'text-blue-600', 'dark:text-blue-400');
         const route = link.getAttribute('data-route');
         if (route === hash) {
             link.classList.add('bg-blue-100', 'dark:bg-blue-900/30', 'text-blue-600', 'dark:text-blue-400');
@@ -396,6 +706,142 @@ function setupNavigation() {
     updateNavigation();
 }
 
+// APK Download Button Management
+// Initialize app update system
+async function initApkDownloadButton() {
+    const apkDoc = await getDoc(doc(db, 'app_settings', 'android_apk'));
+    
+    if (apkDoc.exists() && apkDoc.data().downloadUrl) {
+        const apkData = apkDoc.data();
+        const installedVersion = localStorage.getItem('installed_app_version') || null;
+        const dismissedVersion = localStorage.getItem('dismissed_update_version') || null;
+        
+        // Show update if it's a new version and not dismissed
+        if (apkData.version !== installedVersion && apkData.version !== dismissedVersion) {
+            showAppUpdateNotification(apkData, installedVersion);
+        }
+    }
+}
+
+function showAppUpdateNotification(apkData, installedVersion) {
+    const container = document.getElementById('apk-download-container');
+    if (!container) return;
+    
+    const isUpdate = installedVersion !== null;
+    const title = isUpdate ? '🎉 New Update Available!' : '📱 App Available';
+    const actionText = isUpdate ? 'Update Now' : 'Install App';
+    
+    container.innerHTML = `
+        <div class="glass-card p-6 animate-slide-up border-l-4 border-emerald-500">
+            <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
+                        <i class="fa-brands fa-android text-white text-3xl"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg dark:text-white mb-1">${title}</h4>
+                        <p class="text-sm text-slate-600 dark:text-slate-400">
+                            Version ${apkData.version}
+                            ${isUpdate ? `<span class="text-xs text-slate-500"> • Current: ${installedVersion}</span>` : ''}
+                        </p>
+                    </div>
+                </div>
+                <button onclick="window.dismissUpdate('${apkData.version}')" 
+                    class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-2">
+                    <i class="fa-solid fa-times text-lg"></i>
+                </button>
+            </div>
+            
+            ${apkData.changelog ? `
+                <div class="mb-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                    <h5 class="font-bold text-sm text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-sparkles text-emerald-500"></i>
+                        What's New
+                    </h5>
+                    <p class="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-line leading-relaxed">${apkData.changelog}</p>
+                </div>
+            ` : ''}
+            
+            <div class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mb-4">
+                <span class="flex items-center gap-1">
+                    <i class="fa-solid fa-box"></i>
+                    ${(apkData.size / (1024 * 1024)).toFixed(1)} MB
+                </span>
+                <span class="flex items-center gap-1">
+                    <i class="fa-solid fa-calendar"></i>
+                    ${new Date(apkData.uploadedAt).toLocaleDateString()}
+                </span>
+            </div>
+            
+            <div class="flex gap-3">
+                <button onclick="window.installUpdate('${apkData.downloadUrl}', '${apkData.version}')" 
+                    class="flex-1 btn btn-primary hover-grow">
+                    <i class="fa-solid fa-download mr-2"></i>
+                    ${actionText}
+                </button>
+                ${isUpdate ? `
+                    <button onclick="window.dismissUpdate('${apkData.version}')" 
+                        class="px-6 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all font-semibold">
+                        Later
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    container.classList.remove('hidden');
+}
+
+function updateApkDownloadButton(currentPage) {
+    const container = document.getElementById('apk-download-container');
+    if (!container) return;
+    
+    // Hide on admin and settings pages
+    if (currentPage === 'admin' || currentPage === 'settings' || currentPage === 'auth') {
+        container.classList.add('hidden');
+    } else {
+        // Check if should show based on version
+        const hasContent = container.innerHTML.trim();
+        if (hasContent) {
+            container.classList.remove('hidden');
+        }
+    }
+}
+
+window.installUpdate = async function(url, version) {
+    try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `HomeCellApp_v${version}.apk`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Mark version as installed
+        localStorage.setItem('installed_app_version', version);
+        localStorage.removeItem('dismissed_update_version');
+        
+        // Hide the notification
+        const container = document.getElementById('apk-download-container');
+        if (container) {
+            container.classList.add('hidden');
+        }
+        
+        showSuccess('✅ Update downloaded! Install the APK to complete the update.');
+    } catch (error) {
+        console.error('Update download error:', error);
+        showError('Failed to download update');
+    }
+};
+
+window.dismissUpdate = function(version) {
+    localStorage.setItem('dismissed_update_version', version);
+    const container = document.getElementById('apk-download-container');
+    if (container) {
+        container.classList.add('hidden');
+    }
+};
+
 window.renderAuth = function() {
     const container = document.getElementById('page-auth');
     container.innerHTML = `
@@ -498,6 +944,7 @@ window.renderAuth = function() {
 
 function init() {
     checkTimeBasedTheme();
+    applyTheme(); // Apply saved custom theme
     
     const themeToggle = document.getElementById('theme-toggle');
     if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
@@ -523,6 +970,9 @@ function init() {
                 console.log('Role:', currentProfile.role);
                 console.log('Permissions:', currentProfile.permissions);
                 setupNavigation();
+                
+                // Initialize APK download button
+                await initApkDownloadButton();
             } else {
                 console.error('❌ Profile failed to load');
             }
