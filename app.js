@@ -15,7 +15,7 @@ const firebaseConfig = {
 };
 
 const SUPER_ADMIN_EMAIL = "danielgiobari644@gmail.com";
-const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB limit for photos/videos
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB limit for photos/videos/documents
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -46,54 +46,54 @@ const AdminPermissions = {
     MANAGE_ADMINS: 'manage_admins'
 };
 
-// Custom theme definitions
+// Custom theme definitions (Modern Professional Colors)
 const customThemes = {
     default: {
-        name: 'Purple Dreams',
+        name: 'Indigo',
         colors: {
-            primary: '#8b5cf6',
-            secondary: '#06b6d4',
-            accent: '#f97316'
+            primary: '#6366f1', // Modern indigo
+            secondary: '#6366f1',
+            accent: '#6366f1'
         }
     },
     ocean: {
-        name: 'Ocean Blue',
+        name: 'Cyan',
         colors: {
-            primary: '#0ea5e9',
+            primary: '#06b6d4', // Modern cyan
             secondary: '#06b6d4',
-            accent: '#14b8a6'
+            accent: '#06b6d4'
         }
     },
     sunset: {
-        name: 'Sunset Vibes',
+        name: 'Rose',
         colors: {
-            primary: '#f97316',
-            secondary: '#ec4899',
-            accent: '#f59e0b'
+            primary: '#f43f5e', // Modern rose
+            secondary: '#f43f5e',
+            accent: '#f43f5e'
         }
     },
     forest: {
-        name: 'Forest Green',
+        name: 'Emerald',
         colors: {
-            primary: '#10b981',
-            secondary: '#84cc16',
-            accent: '#14b8a6'
+            primary: '#10b981', // Modern emerald
+            secondary: '#10b981',
+            accent: '#10b981'
         }
     },
     royal: {
-        name: 'Royal Purple',
+        name: 'Purple',
         colors: {
-            primary: '#a855f7',
-            secondary: '#ec4899',
-            accent: '#8b5cf6'
+            primary: '#a855f7', // Modern purple
+            secondary: '#a855f7',
+            accent: '#a855f7'
         }
     },
     crimson: {
-        name: 'Crimson Red',
+        name: 'Orange',
         colors: {
-            primary: '#ef4444',
+            primary: '#f97316', // Modern orange
             secondary: '#f97316',
-            accent: '#ec4899'
+            accent: '#f97316'
         }
     }
 };
@@ -142,39 +142,25 @@ function showLoading(show = true) {
     }
 }
 
-function checkTimeBasedTheme() {
-    if (themePreference === 'auto') {
-        const hour = new Date().getHours();
-        isDark = hour >= 18 || hour < 6;
-    } else {
-        isDark = themePreference === 'dark';
-    }
-    applyTheme();
-}
-
 function applyTheme() {
-    document.documentElement.classList.toggle('dark', isDark);
-    
     // Apply custom theme colors
     const theme = customThemes[customTheme] || customThemes.default;
     const root = document.documentElement.style;
     
-    // Set primary colors
-    root.setProperty('--color-primary', theme.colors.primary);
-    root.setProperty('--color-secondary', theme.colors.secondary);
-    root.setProperty('--color-accent', theme.colors.accent);
+    // Set brand color
+    root.setProperty('--brand-color', theme.colors.primary);
     
-    // Calculate darker shade for gradients
-    const primaryDark = adjustColor(theme.colors.primary, -20);
-    const primaryLight = adjustColor(theme.colors.primary, 20);
-    root.setProperty('--color-primary-dark', primaryDark);
-    root.setProperty('--color-primary-light', primaryLight);
+    // Calculate hover shade (10% darker)
+    const brandHover = adjustColor(theme.colors.primary, -10);
+    root.setProperty('--brand-hover', brandHover);
     
-    // Set dynamic glow (based on primary color)
+    // Calculate dark shade (30% darker)
+    const brandDark = adjustColor(theme.colors.primary, -30);
+    root.setProperty('--brand-dark', brandDark);
+    
+    // Set light background color for badges
     const primaryRgb = hexToRgb(theme.colors.primary);
-    root.setProperty('--glow-purple', `0 0 32px rgba(${primaryRgb.r}, ${primaryRgb.g}, ${primaryRgb.b}, 0.5)`);
-    
-    updateThemeIcon();
+    root.setProperty('--brand-light', `rgba(${primaryRgb.r}, ${primaryRgb.g}, ${primaryRgb.b}, 0.1)`);
 }
 
 // Helper function to convert hex to RGB
@@ -184,7 +170,7 @@ function hexToRgb(hex) {
         r: parseInt(result[1], 16),
         g: parseInt(result[2], 16),
         b: parseInt(result[3], 16)
-    } : { r: 139, g: 92, b: 246 };
+    } : { r: 24, g: 119, b: 242 };
 }
 
 // Helper function to adjust color brightness
@@ -198,39 +184,6 @@ function adjustColor(hex, percent) {
         (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
         (B < 255 ? B < 1 ? 0 : B : 255))
         .toString(16).slice(1);
-}
-
-function updateThemeIcon() {
-    const icon = document.querySelector('#theme-toggle i');
-    const label = document.querySelector('#theme-toggle span');
-    if (!icon || !label) return;
-    if (themePreference === 'auto') {
-        icon.className = 'fa-solid fa-clock text-xl group-hover:scale-110 transition-transform';
-        label.textContent = 'Auto Theme';
-    } else if (isDark) {
-        icon.className = 'fa-solid fa-sun text-xl group-hover:scale-110 transition-transform';
-        label.textContent = 'Light Mode';
-    } else {
-        icon.className = 'fa-solid fa-moon text-xl group-hover:scale-110 transition-transform';
-        label.textContent = 'Dark Mode';
-    }
-}
-
-function toggleTheme() {
-    if (themePreference === 'auto') {
-        themePreference = 'light';
-        isDark = false;
-    } else if (themePreference === 'light') {
-        themePreference = 'dark';
-        isDark = true;
-    } else {
-        themePreference = 'auto';
-        checkTimeBasedTheme();
-        localStorage.setItem('themePreference', themePreference);
-        return;
-    }
-    localStorage.setItem('themePreference', themePreference);
-    applyTheme();
 }
 
 // Notification System
@@ -258,6 +211,23 @@ function addNotification(title, message, type = 'info', link = null) {
     
     // Show toast for new notification
     showToast(title, type);
+
+    // Show browser notification when permission is granted
+    if ('Notification' in window && Notification.permission === 'granted') {
+        navigator.serviceWorker.ready.then((registration) => {
+            if (registration && registration.showNotification) {
+                registration.showNotification(title, {
+                    body: message,
+                    icon: '/icon.png',
+                    badge: '/badge.png',
+                    tag: `homecell-${notification.id}`,
+                    renotify: true
+                });
+            }
+        }).catch(() => {
+            // ignore if service worker not ready yet
+        });
+    }
     
     // Update notification badge
     updateNotificationBadge();
@@ -474,13 +444,8 @@ function updateNavigation() {
     const hash = window.location.hash.slice(1) || '/';
     const links = document.querySelectorAll('[data-route]');
     links.forEach(link => {
-        link.classList.remove('bg-blue-100', 'dark:bg-blue-900/30', 'text-blue-600', 'dark:text-blue-400');
         const route = link.getAttribute('data-route');
-        if (route === hash) {
-            link.classList.add('bg-blue-100', 'dark:bg-blue-900/30', 'text-blue-600', 'dark:text-blue-400');
-        } else {
-            link.classList.remove('bg-blue-100', 'dark:bg-blue-900/30', 'text-blue-600', 'dark:text-blue-400');
-        }
+        link.classList.toggle('active', route === hash);
     });
 }
 
@@ -675,7 +640,7 @@ function setupNavigation() {
         { path: '/settings', icon: 'fa-gear', label: 'Settings', admin: false }
     ];
     
-    const desktopNav = document.getElementById('nav-links');
+    const topNav = document.getElementById('top-nav-links');
     const mobileNav = document.getElementById('mobile-nav-links');
     
     const filteredRoutes = routes.filter(r => {
@@ -685,18 +650,18 @@ function setupNavigation() {
         return currentProfile?.role === UserRole.ADMIN;
     });
     
-    if (desktopNav) {
-        desktopNav.innerHTML = filteredRoutes.map(route => `
-            <a href="#${route.path}" data-route="${route.path}" class="flex items-center gap-4 px-5 py-4 rounded-2xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all font-medium group">
-                <i class="fa-solid ${route.icon} text-xl group-hover:scale-110 transition-transform"></i>
-                <span class="hidden lg:block font-semibold">${route.label}</span>
+    if (topNav) {
+        topNav.innerHTML = filteredRoutes.map(route => `
+            <a href="#${route.path}" data-route="${route.path}" class="top-nav-link">
+                <i class="fa-solid ${route.icon} text-base"></i>
+                <span>${route.label}</span>
             </a>
         `).join('');
     }
     
     if (mobileNav) {
         mobileNav.innerHTML = filteredRoutes.slice(0, 5).map(route => `
-            <a href="#${route.path}" data-route="${route.path}" class="flex flex-col items-center gap-1.5 text-slate-600 dark:text-slate-400 transition-all">
+            <a href="#${route.path}" data-route="${route.path}" class="mobile-nav-link flex flex-col items-center gap-1.5 text-slate-600 dark:text-slate-400 transition-all">
                 <i class="fa-solid ${route.icon} text-xl"></i>
                 <span class="text-[10px] font-bold uppercase tracking-wide">${route.label}</span>
             </a>
@@ -942,12 +907,113 @@ window.renderAuth = function() {
     });
 };
 
-function init() {
-    checkTimeBasedTheme();
-    applyTheme(); // Apply saved custom theme
+/* ============================================
+   PUSH NOTIFICATIONS SYSTEM
+   ============================================ */
+async function initPushNotifications(user) {
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+        console.warn('Push notifications not supported');
+        return;
+    }
+
+    try {
+        // Request notification permission
+        if (Notification.permission === 'granted') {
+            await registerServiceWorker(user);
+            console.log('✅ Push notifications enabled');
+        } else if (Notification.permission !== 'denied') {
+            // Ask for permission
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                await registerServiceWorker(user);
+                addNotification('🔔 Notifications', 'You\'ve enabled push notifications!', 'success');
+            }
+        }
+    } catch (error) {
+        console.error('Push notification setup error:', error);
+    }
+}
+
+async function registerServiceWorker(user) {
+    try {
+        if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.register('sw.js', { scope: '/' });
+            console.log('Service Worker registered:', registration);
+            
+            // Store user ID for service worker
+            localStorage.setItem('pushedUserId', user.uid);
+            
+            // Listen for messages from service worker
+            if (navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'INIT',
+                    userId: user.uid
+                });
+            }
+        }
+    } catch (error) {
+        console.warn('Service Worker registration failed:', error);
+    }
+}
+
+window.sendPushNotification = async function(userId, title, message, type = 'info', data = {}) {
+    try {
+        // Save to Firebase for persistence
+        await addDoc(collection(db, 'push_notifications'), {
+            userId,
+            title,
+            message,
+            type,
+            data,
+            timestamp: Date.now(),
+            read: false
+        });
+        
+        // Add local notification
+        addNotification(title, message, type);
+        
+        // Send browser notification if permission granted
+        if (Notification.permission === 'granted') {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration && registration.showNotification) {
+                registration.showNotification(title, {
+                    body: message,
+                    icon: '/icon.png',
+                    badge: '/badge.png',
+                    tag: 'home-cell',
+                    requireInteraction: type === 'error' || type === 'warning'
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Send push notification error:', error);
+    }
+};
+
+window.requestNotificationPermission = async function() {
+    if (!('Notification' in window)) {
+        showError('Notifications not supported in your browser');
+        return false;
+    }
     
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
+    try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            await initPushNotifications(currentUser);
+            showSuccess('Notifications enabled!');
+            return true;
+        } else {
+            showWarning('Notification permission denied');
+            return false;
+        }
+    } catch (error) {
+        showError('Failed to enable notifications');
+        return false;
+    }
+};
+
+function init() {
+    applyTheme(); // Apply saved custom theme
     
     const tutorialNext = document.getElementById('tutorial-next');
     const tutorialBack = document.getElementById('tutorial-back');
@@ -973,6 +1039,9 @@ function init() {
                 
                 // Initialize APK download button
                 await initApkDownloadButton();
+                
+                // Initialize Push Notifications
+                await initPushNotifications(user);
             } else {
                 console.error('❌ Profile failed to load');
             }
