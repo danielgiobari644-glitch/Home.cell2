@@ -473,8 +473,18 @@ window.renderFeed = function() {
 
             if (postType === 'text') {
                 postData.background = selectedBackground;
-            } else if (mediaFile && mediaPreviewUrl) {
-                postData.mediaUrl = mediaPreviewUrl;
+            } else if (mediaFile) {
+                const mediaId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                try {
+                    await window.storeMediaLocally(mediaFile, mediaId);
+                    postData.mediaId = mediaId;
+                } catch (err) {
+                    console.error('Media storage error:', err);
+                    window.showError('Failed to save media locally');
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                    return;
+                }
                 postData.mediaType = mediaFile.type.startsWith('image/') ? 'image' : 'video';
                 postData.mediaName = mediaFile.name;
             }
@@ -559,8 +569,23 @@ window.renderFeed = function() {
         });
     }
 
+    async function attachLocalMediaUrls(postList) {
+        await Promise.all(postList.map(async post => {
+            if (post.mediaId) {
+                try {
+                    const localUrl = await window.getMediaLocally(post.mediaId);
+                    if (localUrl) {
+                        post.mediaUrl = localUrl;
+                    }
+                } catch (err) {
+                    console.error('Local media lookup failed for', post.mediaId, err);
+                }
+            }
+        }));
+    }
+
     function loadPosts() {
-        onSnapshot(collection(db, 'posts'), (snapshot) => {
+        onSnapshot(collection(db, 'posts'), async (snapshot) => {
             if (initialPostsLoaded) {
                 snapshot.docChanges().forEach(change => {
                     if (change.type === 'added') {
@@ -576,6 +601,7 @@ window.renderFeed = function() {
                 .map(d => ({ id: d.id, ...d.data() }))
                 .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             
+            await attachLocalMediaUrls(posts);
             renderPosts();
             initialPostsLoaded = true;
         });
@@ -778,7 +804,11 @@ window.renderFeed = function() {
         if (!confirm('Delete this post?')) return;
         
         try {
+            const post = posts.find(p => p.id === postId);
             await deleteDoc(doc(db, 'posts', postId));
+            if (post?.mediaId) {
+                await window.deleteMediaLocally(post.mediaId);
+            }
             window.showSuccess('Post deleted');
         } catch (err) {
             console.error('Delete post error:', err);
@@ -2094,6 +2124,9 @@ window.renderMembers = function() {
                     updatedAt: Date.now(),
                     updatedBy: currentUser.uid
                 };
+                if (username !== user.username) {
+                    updates.usernameLastChanged = Date.now();
+                }
                 
                 await updateDoc(doc(db, 'users', userId), updates);
                 
@@ -2881,7 +2914,7 @@ window.renderSettings = function() {
 window.renderProfile = function() {
     const container = document.getElementById('page-profile');
     const { db, currentUser, currentProfile, MAX_FILE_SIZE } = window.app;
-    const { doc, updateDoc } = window.firebase;
+    const { collection, doc, getDocs, query, updateDoc, where } = window.firebase;
     let photoData = null;
 
     container.innerHTML = `
@@ -2919,7 +2952,10 @@ window.renderProfile = function() {
                         
                         <div>
                             <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Username</label>
-                            <input type="text" value="${currentProfile?.username || ''}" disabled class="form-input opacity-50 cursor-not-allowed">
+                            <input type="text" id="profile-username" value="${currentProfile?.username || ''}" class="form-input">
+                            <p id="username-change-note" class="text-xs mt-2 ${Date.now() < ((currentProfile?.usernameLastChanged || currentProfile?.createdAt || 0) + 14 * 24 * 60 * 60 * 1000) ? 'text-rose-500' : 'text-slate-500 dark:text-slate-400'}">
+                                ${Date.now() < ((currentProfile?.usernameLastChanged || currentProfile?.createdAt || 0) + 14 * 24 * 60 * 60 * 1000) ? `You can change your username again on ${new Date((currentProfile?.usernameLastChanged || currentProfile?.createdAt || 0) + 14 * 24 * 60 * 60 * 1000).toLocaleDateString()}` : 'You may change your username once every 14 days.'}
+                            </p>
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2973,12 +3009,44 @@ window.renderProfile = function() {
     document.getElementById('profile-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         
+        const newUsername = document.getElementById('profile-username').value.trim().toLowerCase();
         const updates = {
             fullName: document.getElementById('profile-fullname').value.trim(),
             phoneNumber: document.getElementById('profile-phone').value.trim(),
             gender: document.getElementById('profile-gender').value,
             bio: document.getElementById('profile-bio').value.trim()
         };
+        
+        const currentUsername = currentProfile?.username || '';
+        const lastChanged = currentProfile?.usernameLastChanged || currentProfile?.createdAt || 0;
+        const nextAllowedChangeAt = lastChanged + 14 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        
+        if (newUsername && newUsername !== currentUsername) {
+            if (now < nextAllowedChangeAt) {
+                window.showError(`Username can only be changed once every 14 days. Next change available on ${new Date(nextAllowedChangeAt).toLocaleDateString()}.`);
+                return;
+            }
+            if (newUsername.length < 3) {
+                window.showError('Username must be at least 3 characters long.');
+                return;
+            }
+            if (!/^[a-zA-Z0-9_\.]+$/.test(newUsername)) {
+                window.showError('Username can only contain letters, numbers, underscores, and periods.');
+                return;
+            }
+            if (newUsername !== currentUsername) {
+                const usersRef = collection(db, 'users');
+                const usernameQuery = query(usersRef, where('username', '==', newUsername));
+                const snap = await getDocs(usernameQuery);
+                if (!snap.empty) {
+                    window.showError('That username is already taken.');
+                    return;
+                }
+                updates.username = newUsername;
+                updates.usernameLastChanged = now;
+            }
+        }
         
         if (photoData) updates.photoURL = photoData;
         
